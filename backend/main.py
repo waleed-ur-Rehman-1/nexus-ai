@@ -5,6 +5,8 @@ from pydantic import BaseModel
 import shutil
 import os
 import tempfile
+import subprocess
+import sys
 from datetime import datetime
 from core.ai_brain import AIBrain
 from services.voice_service import VoiceService
@@ -12,6 +14,27 @@ from database.database import SessionLocal
 from database import crud
 from database.models import ReasoningStep
 
+# ====== Playwright Browser Installer (for Render) ======
+def ensure_playwright_browsers():
+    """Install Playwright browsers if missing (only on Render)."""
+    # Check if the browser cache directory exists
+    browser_dir = "/opt/render/.cache/ms-playwright"
+    if not os.path.exists(browser_dir) or not os.listdir(browser_dir):
+        print("⚠️ Playwright browsers not found. Installing...")
+        try:
+            # Install browsers using the Python module
+            subprocess.run([sys.executable, "-m", "playwright", "install"], check=True)
+            print("✅ Playwright browsers installed successfully.")
+        except Exception as e:
+            print(f"❌ Failed to install Playwright: {e}")
+    else:
+        print("✅ Playwright browsers already exist.")
+
+# Run this only on Render (environment variable RENDER is set automatically)
+if os.environ.get("RENDER"):
+    ensure_playwright_browsers()
+
+# ====== FastAPI App ======
 app = FastAPI(
     title="NEXUS AI",
     description="Personal Autonomous Digital Agent",
