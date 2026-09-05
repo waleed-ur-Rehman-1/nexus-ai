@@ -14,25 +14,33 @@ from database.database import SessionLocal
 from database import crud
 from database.models import ReasoningStep
 
-# ====== Playwright Browser Installer (for Render) ======
+# ====== Playwright Browser Installer (runs on startup) ======
 def ensure_playwright_browsers():
-    """Install Playwright browsers if missing (only on Render)."""
-    # Check if the browser cache directory exists
-    browser_dir = "/opt/render/.cache/ms-playwright"
-    if not os.path.exists(browser_dir) or not os.listdir(browser_dir):
-        print("⚠️ Playwright browsers not found. Installing...")
+    """Install Playwright browsers if missing."""
+    browser_path = "/opt/render/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome"
+    if os.path.exists(browser_path):
+        print("✅ Playwright browser already exists.")
+        return
+    print("⚠️ Playwright browser not found. Installing...")
+    try:
+        # Use the Python module to install Chromium
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        print("✅ Playwright Chromium installed successfully.")
+    except Exception as e:
+        print(f"❌ Failed to install Playwright: {e}")
+        # Fallback: try without capture_output for older Python
         try:
-            # Install browsers using the Python module
-            subprocess.run([sys.executable, "-m", "playwright", "install"], check=True)
-            print("✅ Playwright browsers installed successfully.")
-        except Exception as e:
-            print(f"❌ Failed to install Playwright: {e}")
-    else:
-        print("✅ Playwright browsers already exist.")
+            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+        except Exception as e2:
+            print(f"❌ Second attempt failed: {e2}")
 
-# Run this only on Render (environment variable RENDER is set automatically)
-if os.environ.get("RENDER"):
-    ensure_playwright_browsers()
+# Run this immediately when the module loads (on Render)
+ensure_playwright_browsers()
 
 # ====== FastAPI App ======
 app = FastAPI(
