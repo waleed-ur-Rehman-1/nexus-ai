@@ -1,4 +1,7 @@
 import asyncio
+import os
+import subprocess
+import sys
 from playwright.async_api import async_playwright
 from agents.base_agent import BaseAgent
 
@@ -9,58 +12,66 @@ class BrowserAgent(BaseAgent):
         self.browser = None
         self.page = None
         self.playwright = None
+        self._ensure_browser_installed()
 
-    async def _close_browser(self):
+    def _ensure_browser_installed(self):
+        """Install Playwright browser if missing (works on Render)."""
+        browser_path = "/opt/render/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome"
+        if os.path.exists(browser_path):
+            print("✅ Browser already exists.")
+            return
+        print("⚠️ Installing Playwright browser...")
         try:
-            if self.browser:
-                await self.browser.close()
-            if self.playwright:
-                await self.playwright.stop()
-        except Exception:
-            pass
-        finally:
-            self.browser = None
-            self.page = None
-            self.playwright = None
-
-    async def _ensure_browser(self):
-        if self.page is not None:
-            try:
-                await self.page.evaluate("1 + 1")
-                return
-            except Exception:
-                print("🔄 Page is dead, re‑launching...")
-                await self._close_browser()
-
-        if self.browser is None:
-            print("🚀 Launching browser...")
-            self.playwright = await async_playwright().start()
-            self.browser = await self.playwright.chromium.launch(
-                headless=False,
-                args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+            # Try with subprocess
+            subprocess.run(
+                [sys.executable, "-m", "playwright", "install", "chromium"],
+                check=True,
+                capture_output=True,
+                text=True
             )
-            self.page = await self.browser.new_page()
-            print("✅ Browser launched")
+            print("✅ Playwright installed successfully.")
+        except Exception as e:
+            print(f"❌ Installation failed: {e}")
+            # Fallback: try without capture output
+            try:
+                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+            except Exception as e2:
+                print(f"❌ Second attempt failed: {e2}")
 
-    # ---------- Core ----------
-    async def open_page(self, url: str, timeout: int = 60000) -> dict:
+    # ---------- Rest of your agent code ----------
+    async def _ensure_browser(self):
+        if self.browser is None:
+            try:
+                self.playwright = await async_playwright().start()
+                self.browser = await self.playwright.chromium.launch(
+                    headless=False,
+                    args=['--no-sandbox', '--disable-dev-shm-usage']
+                )
+                self.page = await self.browser.new_page()
+                print("✅ Browser launched successfully")
+            except Exception as e:
+                print(f"❌ Browser launch failed: {e}")
+                raise
+
+    async def open_page(self, url: str) -> dict:
         try:
             await self._ensure_browser()
-            if not url.startswith("http"):
-                url = f"https://{url}"
-            await self.page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+            await self.page.goto(url, wait_until="domcontentloaded")
             title = await self.page.title()
-            return {"success": True, "agent": self.name, "action": "open_page", "url": url, "title": title}
+            return {
+                "success": True,
+                "agent": self.name,
+                "action": "open_page",
+                "url": url,
+                "title": title
+            }
         except Exception as e:
-            print(f"⚠️ Open failed: {e}. Retrying once...")
-            await self._close_browser()
-            await self._ensure_browser()
-            try:
-                await self.page.goto(url, wait_until="domcontentloaded", timeout=timeout)
-                title = await self.page.title()
-                return {"success": True, "agent": self.name, "action": "open_page", "url": url, "title": title}
-            except Exception as e2:
-                return {"success": False, "agent": self.name, "action": "open_page", "message": f"Failed: {str(e2)}"}
+            return {
+                "success": False,
+                "agent": self.name,
+                "action": "open_page",
+                "message": f"Failed to open page: {str(e)}"
+            }
 
     async def click(self, selector: str) -> dict:
         try:
@@ -87,41 +98,19 @@ class BrowserAgent(BaseAgent):
             return {"success": False, "agent": self.name, "action": "screenshot", "message": str(e)}
 
     async def close(self) -> dict:
-        await self._close_browser()
-        return {"success": True, "agent": self.name, "action": "close", "message": "Browser closed."}
-
-    # ---------- YouTube ----------
-    async def search_youtube(self, query: str) -> dict:
         try:
-            await self._ensure_browser()
-            result = await self.open_page("https://www.youtube.com", timeout=60000)
-            if not result["success"]:
-                return result
-            try:
-                await self.page.click("button:has-text('Accept all'), button:has-text('Accept')", timeout=3000)
-            except:
-                pass
-            search_input = await self.page.wait_for_selector("input#search, input[name='search_query']", timeout=10000)
-            await search_input.fill(query)
-            await self.page.keyboard.press("Enter")
-            await self.page.wait_for_load_state("networkidle")
-            await self.page.wait_for_selector("ytd-video-renderer, ytd-rich-item-renderer", timeout=10000)
-            return {
-                "success": True,
-                "agent": self.name,
-                "action": "search_youtube",
-                "query": query,
-                "message": f"Search results for '{query}' displayed."
-            }
+            if self.browser:
+                await self.browser.close()
+                await self.playwright.stop()
+                self.browser = self.page = self.playwright = None
+            return {"success": True, "agent": self.name, "action": "close", "message": "Browser closed."}
         except Exception as e:
-            return {"success": False, "agent": self.name, "action": "search_youtube", "message": str(e)}
+            return {"success": False, "agent": self.name, "action": "close", "message": str(e)}
 
     async def play_youtube(self, query: str) -> dict:
         try:
             await self._ensure_browser()
-            result = await self.open_page("https://www.youtube.com", timeout=60000)
-            if not result["success"]:
-                return result
+            await self.page.goto("https://www.youtube.com", wait_until="domcontentloaded")
             try:
                 await self.page.click("button:has-text('Accept all'), button:has-text('Accept')", timeout=3000)
             except:
@@ -151,56 +140,31 @@ class BrowserAgent(BaseAgent):
         except Exception as e:
             return {"success": False, "agent": self.name, "action": "play_youtube", "message": str(e)}
 
-    # ---------- Execute ----------
     def execute(self, command: str) -> dict:
         cmd = command.lower().strip()
 
-        # 1. Play command
         if cmd.startswith("play "):
             query = command[5:].strip()
             if not query:
                 return {"success": False, "agent": self.name, "message": "What would you like to play?"}
             return asyncio.run(self.play_youtube(query))
 
-        # 2. Search command
-        if cmd.startswith("search "):
-            query = command[7:].strip()
-            if not query:
-                return {"success": False, "agent": self.name, "message": "What would you like to search?"}
-            return asyncio.run(self.search_youtube(query))
-
-        # 3. "open" handling – smart domain detection
-        if cmd.startswith("open "):
-            rest = command[5:].strip()
-            # If rest contains a space, split into tokens to find a valid URL/domain
-            tokens = rest.split()
-            # Try to find a token that is a valid URL or domain
-            for token in tokens:
-                # If token looks like a domain (contains '.' and no spaces)
-                if "." in token and not token.startswith("."):
-                    return asyncio.run(self.open_page(token))
-                # If token starts with http
-                if token.startswith("http"):
-                    return asyncio.run(self.open_page(token))
-            # If no token looks like a domain, treat the whole rest as a play query
-            if rest:
-                return asyncio.run(self.play_youtube(rest))
-            else:
-                # Just open YouTube
-                return asyncio.run(self.open_page("https://www.youtube.com"))
-
-        # 4. Direct YouTube open (without "open" but containing "youtube")
-        if "youtube" in cmd and "http" not in cmd:
+        if "open" in cmd and "youtube" in cmd and "http" not in cmd:
             return asyncio.run(self.open_page("https://www.youtube.com"))
 
-        # 5. Direct URL if it contains http
-        if "http" in cmd:
+        if "open" in cmd and "http" in cmd:
             for word in command.split():
                 if word.startswith("http"):
                     return asyncio.run(self.open_page(word))
             return {"success": False, "agent": self.name, "message": "No URL found."}
 
-        # 6. Other commands
+        if cmd.startswith("open "):
+            query = command[5:].strip()
+            if query and query not in ["youtube", "the browser", "browser"]:
+                return asyncio.run(self.play_youtube(query))
+            else:
+                return asyncio.run(self.open_page("https://www.youtube.com"))
+
         if "click" in cmd:
             selector = command.split("click", 1)[1].strip()
             return asyncio.run(self.click(selector))
