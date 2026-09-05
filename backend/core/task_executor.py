@@ -3,7 +3,6 @@ from agents.browser_agent import BrowserAgent
 from agents.university_agent import UniversityAgent
 from agents.system_agent import SystemAgent
 from agents.email_agent import EmailAgent
-from agents.calendar_agent import CalendarAgent   # <-- NEW
 
 class TaskExecutor:
     def __init__(self):
@@ -13,8 +12,17 @@ class TaskExecutor:
             "university_agent": UniversityAgent(),
             "system_agent": SystemAgent(),
             "email_agent": EmailAgent(),
-            "calendar_agent": CalendarAgent()   # <-- NEW
         }
+
+        # Try to add Calendar Agent; skip if it fails (e.g., missing credentials.json)
+        try:
+            from agents.calendar_agent import CalendarAgent
+            self.agents["calendar_agent"] = CalendarAgent()
+            print("✅ Calendar Agent initialized successfully.")
+        except Exception as e:
+            print(f"⚠️ Calendar Agent could not be initialized: {e}. Skipping.")
+            # Optionally add a dummy agent that returns a friendly message
+            # But we can just leave it out.
 
     def execute(self, agent_name: str, command: str) -> dict:
         agent = self.agents.get(agent_name)
