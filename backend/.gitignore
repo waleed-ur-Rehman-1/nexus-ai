@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+venv/
+env/
+.env
+*.env
+token.pickle
+credentials.json
+*.log
+
+# Node / Frontend
+node_modules/
+dist/
+.vercel/
+*.local
